@@ -1,7 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { auth } from "@/lib/auth";
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+import { callAI } from "@/lib/ai";
 
 export async function POST(req: Request) {
   const session = await auth();
@@ -44,22 +42,14 @@ Be creative, specific with quantities and techniques. Make it genuinely deliciou
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        const anthropicStream = client.messages.stream({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1500,
-          messages: [{ role: "user", content: prompt }],
+        await callAI({
+          prompt,
+          maxTokens: 1500,
+          onChunk: (text) => controller.enqueue(encoder.encode(text)),
         });
-
-        for await (const chunk of anthropicStream) {
-          if (
-            chunk.type === "content_block_delta" &&
-            chunk.delta.type === "text_delta"
-          ) {
-            controller.enqueue(encoder.encode(chunk.delta.text));
-          }
-        }
         controller.close();
       } catch (err) {
+        console.error("[generate-recipe] All providers failed:", err);
         controller.error(err);
       }
     },

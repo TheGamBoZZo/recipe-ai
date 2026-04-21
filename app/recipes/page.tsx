@@ -1,6 +1,24 @@
 "use client";
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+
+function extractJSON(raw: string): Recipe | null {
+  if (!raw || !raw.trim()) return null;
+  const stripped = raw.replace(/```(?:json)?\n?/g, "").replace(/```/g, "").trim();
+  try { return JSON.parse(stripped); } catch { /* continue */ }
+  const start = stripped.indexOf("{");
+  const end = stripped.lastIndexOf("}");
+  if (start !== -1 && end !== -1 && end > start) {
+    try { return JSON.parse(stripped.slice(start, end + 1)); } catch { /* continue */ }
+  }
+  for (let i = 0; i < stripped.length; i++) {
+    if (stripped[i] !== "{") continue;
+    for (let j = stripped.length; j > i; j--) {
+      if (stripped[j] !== "}") continue;
+      try { return JSON.parse(stripped.slice(i, j + 1)); } catch { /* keep scanning */ }
+    }
+  }
+  return null;
+}
 
 interface Recipe {
   id?: string;
@@ -17,7 +35,6 @@ interface Recipe {
 }
 
 export default function RecipesPage() {
-  const router = useRouter();
   const [ingredients, setIngredients] = useState("");
   const [cuisine, setCuisine] = useState("");
   const [dietary, setDietary] = useState("");
@@ -27,13 +44,12 @@ export default function RecipesPage() {
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [saved, setSaved] = useState(false);
   const [savedRecipes, setSavedRecipes] = useState<Recipe[]>([]);
+  const [error, setError] = useState("");
   const [loadingRecipes, setLoadingRecipes] = useState(true);
   const [activeTab, setActiveTab] = useState<"generate" | "saved">("generate");
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
 
-  useEffect(() => {
-    fetchRecipes();
-  }, []);
+  useEffect(() => { fetchRecipes(); }, []);
 
   async function fetchRecipes() {
     setLoadingRecipes(true);
@@ -48,6 +64,7 @@ export default function RecipesPage() {
     setStreaming("");
     setRecipe(null);
     setSaved(false);
+    setError("");
 
     try {
       const res = await fetch("/api/generate-recipe", {
@@ -59,7 +76,6 @@ export default function RecipesPage() {
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let full = "";
-
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -67,12 +83,18 @@ export default function RecipesPage() {
         setStreaming(full);
       }
 
-      const clean = full.replace(/```json|```/g, "").trim();
-      const parsed = JSON.parse(clean);
+      const parsed = extractJSON(full);
+      if (!parsed) throw new Error("Could not parse recipe — please try again.");
       setRecipe(parsed);
       setStreaming("");
+
+      // On mobile, scroll down to show the result after generating
+      setTimeout(() => {
+        document.getElementById("recipe-result")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
     } catch (e) {
       console.error(e);
+      setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
     } finally {
       setGenerating(false);
     }
@@ -85,10 +107,7 @@ export default function RecipesPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(recipe),
     });
-    if (res.ok) {
-      setSaved(true);
-      fetchRecipes();
-    }
+    if (res.ok) { setSaved(true); fetchRecipes(); }
   }
 
   async function deleteRecipe(id: string) {
@@ -104,47 +123,47 @@ export default function RecipesPage() {
   };
 
   return (
-    <div style={{ maxWidth: 1100, margin: "0 auto", padding: "2.5rem 2rem" }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "2rem" }}>
-        <h1 style={{ fontSize: "2.5rem" }}>Recipes</h1>
+    <div className="page-wrap">
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem", flexWrap: "wrap", gap: "0.75rem" }}>
+        <h1 className="page-heading" style={{ fontSize: "2.25rem" }}>Recipes</h1>
         <div style={{ display: "flex", gap: "0.5rem" }}>
           {(["generate", "saved"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={activeTab === tab ? "btn-primary" : "btn-outline"}
+              className={`tab-btn ${activeTab === tab ? "btn-primary" : "btn-outline"}`}
               style={{ padding: "0.5rem 1.25rem", textTransform: "capitalize" }}
             >
-              {tab} {tab === "saved" && savedRecipes.length > 0 && `(${savedRecipes.length})`}
+              {tab}{tab === "saved" && savedRecipes.length > 0 ? ` (${savedRecipes.length})` : ""}
             </button>
           ))}
         </div>
       </div>
 
       {activeTab === "generate" && (
-        <div style={{ display: "grid", gridTemplateColumns: "400px 1fr", gap: "2rem", alignItems: "start" }}>
+        <div className="generate-layout">
           {/* Form */}
-          <div className="card" style={{ position: "sticky", top: 84 }}>
-            <h2 style={{ fontSize: "1.25rem", marginBottom: "1.5rem" }}>What&apos;s in your fridge?</h2>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <div className="card form-sticky">
+            <h2 style={{ fontSize: "1.125rem", marginBottom: "1.25rem" }}>What&apos;s in your fridge?</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
               <div>
-                <label style={{ fontSize: "0.8125rem", fontWeight: 500, color: "var(--ink-soft)", display: "block", marginBottom: "0.4rem" }}>
+                <label style={{ fontSize: "0.8125rem", fontWeight: 500, color: "var(--ink-soft)", display: "block", marginBottom: "0.35rem" }}>
                   Ingredients *
                 </label>
                 <textarea
                   className="input"
-                  placeholder="chicken thighs, garlic, lemon, thyme, potatoes..."
+                  placeholder="chicken thighs, garlic, lemon, thyme..."
                   value={ingredients}
                   onChange={(e) => setIngredients(e.target.value)}
-                  rows={4}
+                  rows={3}
                   style={{ resize: "vertical" }}
                 />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.625rem" }}>
                 <div>
-                  <label style={{ fontSize: "0.8125rem", fontWeight: 500, color: "var(--ink-soft)", display: "block", marginBottom: "0.4rem" }}>Cuisine</label>
+                  <label style={{ fontSize: "0.8125rem", fontWeight: 500, color: "var(--ink-soft)", display: "block", marginBottom: "0.35rem" }}>Cuisine</label>
                   <select className="input" value={cuisine} onChange={(e) => setCuisine(e.target.value)}>
                     <option value="">Any</option>
                     {["Italian", "Asian", "Mexican", "French", "Indian", "Mediterranean", "American"].map((c) => (
@@ -153,20 +172,18 @@ export default function RecipesPage() {
                   </select>
                 </div>
                 <div>
-                  <label style={{ fontSize: "0.8125rem", fontWeight: 500, color: "var(--ink-soft)", display: "block", marginBottom: "0.4rem" }}>Servings</label>
+                  <label style={{ fontSize: "0.8125rem", fontWeight: 500, color: "var(--ink-soft)", display: "block", marginBottom: "0.35rem" }}>Servings</label>
                   <select className="input" value={servings} onChange={(e) => setServings(e.target.value)}>
-                    {["1", "2", "4", "6", "8"].map((s) => (
-                      <option key={s}>{s}</option>
-                    ))}
+                    {["1", "2", "4", "6", "8"].map((s) => <option key={s}>{s}</option>)}
                   </select>
                 </div>
               </div>
 
               <div>
-                <label style={{ fontSize: "0.8125rem", fontWeight: 500, color: "var(--ink-soft)", display: "block", marginBottom: "0.4rem" }}>Dietary needs</label>
+                <label style={{ fontSize: "0.8125rem", fontWeight: 500, color: "var(--ink-soft)", display: "block", marginBottom: "0.35rem" }}>Dietary needs</label>
                 <input
                   className="input"
-                  placeholder="vegetarian, gluten-free, dairy-free..."
+                  placeholder="vegetarian, gluten-free..."
                   value={dietary}
                   onChange={(e) => setDietary(e.target.value)}
                 />
@@ -176,7 +193,7 @@ export default function RecipesPage() {
                 className="btn-primary"
                 onClick={generate}
                 disabled={generating || !ingredients.trim()}
-                style={{ width: "100%", justifyContent: "center", padding: "0.875rem", fontSize: "0.9375rem", marginTop: "0.25rem" }}
+                style={{ width: "100%", justifyContent: "center", padding: "0.875rem", fontSize: "0.9375rem" }}
               >
                 {generating ? (
                   <>
@@ -186,36 +203,36 @@ export default function RecipesPage() {
                 ) : "✦ Generate recipe"}
               </button>
             </div>
-
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           </div>
 
           {/* Result */}
-          <div>
+          <div id="recipe-result">
             {generating && streaming && (
               <div className="card fade-in">
-                <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
-                  <div className="shimmer" style={{ height: 32, width: "60%", borderRadius: 8 }} />
-                </div>
-                <p style={{ fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--ink-soft)", whiteSpace: "pre-wrap", lineHeight: 1.7, opacity: 0.7 }}>
+                <div className="shimmer" style={{ height: 28, width: "55%", borderRadius: 6, marginBottom: "1rem" }} />
+                <p style={{ fontSize: "0.875rem", color: "var(--ink-soft)", whiteSpace: "pre-wrap", lineHeight: 1.7, opacity: 0.6 }}>
                   {streaming}
                 </p>
               </div>
             )}
 
             {recipe && !generating && (
-              <RecipeCard
-                recipe={recipe}
-                onSave={saveRecipe}
-                saved={saved}
-                difficultyColor={difficultyColor}
-              />
+              <RecipeCard recipe={recipe} onSave={saveRecipe} saved={saved} difficultyColor={difficultyColor} />
             )}
 
-            {!recipe && !generating && (
-              <div style={{ textAlign: "center", padding: "5rem 2rem", color: "var(--ink-soft)" }}>
-                <div style={{ fontSize: "3rem", marginBottom: "1rem", opacity: 0.3 }}>✦</div>
-                <p style={{ fontFamily: "var(--font-display)", fontSize: "1.25rem", fontStyle: "italic" }}>
+            {error && !generating && (
+              <div style={{ background: "var(--terra-light)", border: "1px solid var(--terra)", borderRadius: "0.75rem", padding: "1.25rem 1.5rem", color: "var(--terra)" }}>
+                <p style={{ fontWeight: 500, marginBottom: "0.25rem" }}>Generation failed</p>
+                <p style={{ fontSize: "0.875rem", opacity: 0.8 }}>{error}</p>
+                <p style={{ fontSize: "0.8125rem", marginTop: "0.625rem", opacity: 0.7 }}>Free AI quotas reset automatically — try again in a moment.</p>
+              </div>
+            )}
+
+            {!recipe && !generating && !error && (
+              <div style={{ textAlign: "center", padding: "4rem 2rem", color: "var(--ink-soft)" }}>
+                <div style={{ fontSize: "2.5rem", marginBottom: "1rem", opacity: 0.25 }}>✦</div>
+                <p style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontStyle: "italic" }}>
                   Your recipe will appear here
                 </p>
               </div>
@@ -225,16 +242,14 @@ export default function RecipesPage() {
       )}
 
       {activeTab === "saved" && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "1.25rem" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "1rem" }}>
           {loadingRecipes
-            ? Array(3).fill(0).map((_, i) => (
-                <div key={i} className="card shimmer" style={{ height: 180 }} />
-              ))
+            ? Array(3).fill(0).map((_, i) => <div key={i} className="card shimmer" style={{ height: 160 }} />)
             : savedRecipes.length === 0
             ? (
-              <div style={{ gridColumn: "1/-1", textAlign: "center", padding: "4rem", color: "var(--ink-soft)" }}>
-                <p style={{ fontFamily: "var(--font-display)", fontSize: "1.25rem", fontStyle: "italic" }}>No saved recipes yet</p>
-                <p style={{ marginTop: "0.5rem", fontSize: "0.9rem" }}>Generate and save a recipe to see it here</p>
+              <div style={{ gridColumn: "1/-1", textAlign: "center", padding: "3rem 1rem", color: "var(--ink-soft)" }}>
+                <p style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontStyle: "italic" }}>No saved recipes yet</p>
+                <p style={{ marginTop: "0.5rem", fontSize: "0.875rem" }}>Generate and save a recipe to see it here</p>
               </div>
             )
             : savedRecipes.map((r) => (
@@ -252,22 +267,18 @@ export default function RecipesPage() {
                   (e.currentTarget as HTMLDivElement).style.boxShadow = "";
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "0.75rem" }}>
-                  <h3 style={{ fontSize: "1.0625rem", lineHeight: 1.3, flex: 1, paddingRight: "0.5rem" }}>{r.title}</h3>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "0.625rem" }}>
+                  <h3 style={{ fontSize: "1rem", lineHeight: 1.3, flex: 1, paddingRight: "0.5rem" }}>{r.title}</h3>
                   <button
                     onClick={(e) => { e.stopPropagation(); deleteRecipe(r.id!); }}
-                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-soft)", opacity: 0.4, fontSize: "1rem", lineHeight: 1, padding: "2px" }}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-soft)", opacity: 0.4, fontSize: "1.125rem", lineHeight: 1, padding: "4px", flexShrink: 0 }}
                   >×</button>
                 </div>
-                <p style={{ fontSize: "0.875rem", color: "var(--ink-soft)", marginBottom: "1rem", lineHeight: 1.6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                <p style={{ fontSize: "0.875rem", color: "var(--ink-soft)", marginBottom: "0.875rem", lineHeight: 1.55, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                   {r.description}
                 </p>
-                <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
-                  {r.difficulty && (
-                    <span className="tag" style={{ color: difficultyColor[r.difficulty] || "var(--ink-soft)", borderColor: "transparent", background: "var(--warm-white)" }}>
-                      {r.difficulty}
-                    </span>
-                  )}
+                <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
+                  {r.difficulty && <span className="tag" style={{ color: difficultyColor[r.difficulty] || "var(--ink-soft)" }}>{r.difficulty}</span>}
                   {r.prepTime && <span className="tag">{r.prepTime}</span>}
                   {r.cuisine && <span className="tag">{r.cuisine}</span>}
                 </div>
@@ -279,19 +290,21 @@ export default function RecipesPage() {
       {/* Recipe modal */}
       {selectedRecipe && (
         <div
+          className="modal-wrap"
           style={{ position: "fixed", inset: 0, background: "rgba(26,20,16,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}
           onClick={() => setSelectedRecipe(null)}
         >
           <div
-            style={{ background: "var(--cream)", borderRadius: "1.25rem", maxWidth: 680, width: "100%", maxHeight: "90vh", overflowY: "auto", padding: "2rem" }}
+            className="modal-inner"
+            style={{ background: "var(--cream)", borderRadius: "1.25rem", maxWidth: 680, width: "100%", maxHeight: "90vh", overflowY: "auto", padding: "1.75rem" }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "1.5rem" }}>
-              <div>
-                <h2 style={{ fontSize: "1.75rem", marginBottom: "0.25rem" }}>{selectedRecipe.title}</h2>
-                <p style={{ color: "var(--ink-soft)", fontSize: "0.9375rem" }}>{selectedRecipe.description}</p>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "1.25rem" }}>
+              <div style={{ flex: 1, paddingRight: "0.75rem" }}>
+                <h2 style={{ fontSize: "1.5rem", marginBottom: "0.25rem" }}>{selectedRecipe.title}</h2>
+                <p style={{ color: "var(--ink-soft)", fontSize: "0.9rem" }}>{selectedRecipe.description}</p>
               </div>
-              <button onClick={() => setSelectedRecipe(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.5rem", lineHeight: 1, color: "var(--ink-soft)", marginLeft: "1rem" }}>×</button>
+              <button onClick={() => setSelectedRecipe(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.5rem", color: "var(--ink-soft)", flexShrink: 0 }}>×</button>
             </div>
             <RecipeCard recipe={selectedRecipe} saved={true} difficultyColor={difficultyColor} />
           </div>
@@ -301,43 +314,35 @@ export default function RecipesPage() {
   );
 }
 
-function RecipeCard({
-  recipe,
-  onSave,
-  saved,
-  difficultyColor,
-}: {
+function RecipeCard({ recipe, onSave, saved, difficultyColor }: {
   recipe: Recipe;
   onSave?: () => void;
   saved: boolean;
   difficultyColor: Record<string, string>;
 }) {
   return (
-    <div className="card fade-in" style={{ padding: "2rem" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "1rem" }}>
-        <div>
-          <h2 style={{ fontSize: "1.75rem", marginBottom: "0.25rem" }}>{recipe.title}</h2>
-          <p style={{ color: "var(--ink-soft)", fontSize: "0.9375rem", lineHeight: 1.6 }}>{recipe.description}</p>
+    <div className="card fade-in" style={{ padding: "1.5rem" }}>
+      {/* Title + save */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "0.875rem", gap: "0.75rem" }}>
+        <div style={{ flex: 1 }}>
+          <h2 style={{ fontSize: "1.5rem", marginBottom: "0.2rem" }}>{recipe.title}</h2>
+          <p style={{ color: "var(--ink-soft)", fontSize: "0.9rem", lineHeight: 1.6 }}>{recipe.description}</p>
         </div>
         {onSave && (
           <button
             className={saved ? "btn-outline" : "btn-primary"}
             onClick={onSave}
             disabled={saved}
-            style={{ whiteSpace: "nowrap", marginLeft: "1rem" }}
+            style={{ whiteSpace: "nowrap", flexShrink: 0, fontSize: "0.8125rem", padding: "0.5rem 1rem" }}
           >
-            {saved ? "✓ Saved" : "Save recipe"}
+            {saved ? "✓ Saved" : "Save"}
           </button>
         )}
       </div>
 
-      {/* Meta */}
-      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "1.75rem" }}>
-        {recipe.difficulty && (
-          <span className="tag" style={{ color: difficultyColor[recipe.difficulty] }}>
-            {recipe.difficulty}
-          </span>
-        )}
+      {/* Tags */}
+      <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginBottom: "1.5rem" }}>
+        {recipe.difficulty && <span className="tag" style={{ color: difficultyColor[recipe.difficulty] }}>{recipe.difficulty}</span>}
         {recipe.prepTime && <span className="tag">Prep {recipe.prepTime}</span>}
         {recipe.cookTime && <span className="tag">Cook {recipe.cookTime}</span>}
         {recipe.servings && <span className="tag">{recipe.servings} servings</span>}
@@ -345,30 +350,29 @@ function RecipeCard({
         {recipe.tags?.map((t) => <span key={t} className="tag">{t}</span>)}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: "2rem" }}>
-        {/* Ingredients */}
+      {/* Ingredients + Method — stacks on mobile */}
+      <div className="recipe-body">
         <div>
-          <h3 style={{ fontSize: "1rem", marginBottom: "0.875rem", letterSpacing: "0.04em", textTransform: "uppercase", fontSize: "0.75rem", fontFamily: "var(--font-body)", fontWeight: 600, color: "var(--ink-soft)" }}>
+          <p style={{ fontSize: "0.6875rem", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--ink-soft)", marginBottom: "0.75rem" }}>
             Ingredients
-          </h3>
+          </p>
           <ul style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {recipe.ingredients.map((ing, i) => (
               <li key={i} style={{ fontSize: "0.9375rem", display: "flex", gap: "0.5rem", lineHeight: 1.5 }}>
-                <span style={{ color: "var(--terra)", marginTop: "0.2rem", flexShrink: 0 }}>—</span>
+                <span style={{ color: "var(--terra)", flexShrink: 0, marginTop: "0.15rem" }}>—</span>
                 {ing}
               </li>
             ))}
           </ul>
         </div>
 
-        {/* Steps */}
         <div>
-          <h3 style={{ fontSize: "0.75rem", fontFamily: "var(--font-body)", fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--ink-soft)", marginBottom: "0.875rem" }}>
+          <p style={{ fontSize: "0.6875rem", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--ink-soft)", marginBottom: "0.75rem" }}>
             Method
-          </h3>
+          </p>
           <ol style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: "1rem" }}>
             {recipe.steps.map((step, i) => (
-              <li key={i} style={{ display: "flex", gap: "0.875rem", fontSize: "0.9375rem", lineHeight: 1.65 }}>
+              <li key={i} style={{ display: "flex", gap: "0.75rem", fontSize: "0.9375rem", lineHeight: 1.65 }}>
                 <span style={{ fontFamily: "var(--font-display)", fontSize: "1rem", color: "var(--terra)", flexShrink: 0, minWidth: "1.25rem" }}>
                   {i + 1}.
                 </span>

@@ -100,7 +100,6 @@ h1, h2, h3 {
 }
 .input:focus { border-color: var(--ink); }
 .input::placeholder { color: #a09890; }
-
 select.input { appearance: none; cursor: pointer; }
 
 .shimmer {
@@ -112,3 +111,85 @@ select.input { appearance: none; cursor: pointer; }
 
 .fade-in { animation: fadeIn 0.4s ease forwards; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ── Page wrapper ─────────────────────────────────────────────────────────── */
+.page-wrap {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2.5rem 2rem;
+}
+
+/* ── Generate tab: side-by-side on desktop, stacked on mobile ─────────────── */
+.generate-layout {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 2rem;
+  align-items: start;
+}
+.form-sticky { position: sticky; top: 84px; }
+
+/* ── Recipe card: ingredients + method side by side on desktop ────────────── */
+.recipe-body {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr;
+  gap: 2rem;
+}
+
+/* ── Planner grid ─────────────────────────────────────────────────────────── */
+.planner-grid {
+  display: grid;
+  grid-template-columns: 72px repeat(7, 1fr);
+  gap: 0.5rem;
+  min-width: 640px;
+}
+
+/* ── Nav links (hide text labels on very small screens) ──────────────────── */
+.nav-links { display: flex; align-items: center; gap: 1.5rem; }
+.nav-link-label { display: inline; }
+
+/* ── Mobile overrides ─────────────────────────────────────────────────────── */
+@media (max-width: 700px) {
+  .page-wrap { padding: 1.25rem 1rem; }
+
+  /* Generate tab stacks form above result */
+  .generate-layout {
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+  }
+  .form-sticky { position: static; }
+
+  /* Recipe card stacks ingredients above method */
+  .recipe-body {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  /* Shrink page heading */
+  .page-heading { font-size: 1.75rem !important; }
+
+  /* Tab buttons smaller */
+  .tab-btn { padding: 0.4rem 0.875rem !important; font-size: 0.8125rem !important; }
+
+  /* Nav: hide text labels, show only avatar + sign-out */
+  .nav-link-label { display: none; }
+  .nav-links { gap: 0.75rem; }
+
+  /* Modal full-screen on mobile */
+  .modal-inner {
+    border-radius: 1rem 1rem 0 0 !important;
+    max-height: 92vh !important;
+    padding: 1.25rem !important;
+  }
+  .modal-wrap {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+
+  /* Grocery week selector wraps */
+  .week-selector { flex-wrap: wrap; gap: 0.75rem !important; }
+}
+
+@media (max-width: 400px) {
+  .nav-link-label { display: none; }
+  .card { padding: 1rem; }
+}

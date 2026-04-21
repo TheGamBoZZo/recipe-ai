@@ -1,9 +1,7 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { callAI } from "@/lib/ai";
 import { NextResponse } from "next/server";
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 function getWeekStart(date: Date) {
   const d = new Date(date);
@@ -34,13 +32,7 @@ export async function POST(req: Request) {
     .map((s) => `${s.recipe.title}:\n${s.recipe.ingredients.join("\n")}`)
     .join("\n\n");
 
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 1000,
-    messages: [
-      {
-        role: "user",
-        content: `Consolidate these recipe ingredients into an organized grocery list. Combine duplicates, sum quantities where possible. Group by category.
+  const prompt = `Consolidate these recipe ingredients into an organized grocery list. Combine duplicates, sum quantities where possible. Group by category.
 
 ${allIngredients}
 
@@ -52,13 +44,10 @@ Respond ONLY with valid JSON (no markdown):
       "items": ["3 cloves garlic", "1 large onion", "2 tomatoes"]
     }
   ]
-}`,
-      },
-    ],
-  });
+}`;
 
-  const text = response.content[0].type === "text" ? response.content[0].text : "";
   try {
+    const text = await callAI({ prompt, maxTokens: 1000 });
     const clean = text.replace(/```json|```/g, "").trim();
     const data = JSON.parse(clean);
     return NextResponse.json(data);

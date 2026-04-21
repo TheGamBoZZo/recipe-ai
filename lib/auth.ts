@@ -16,9 +16,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       clientSecret: process.env.AUTH_GITHUB_SECRET!,
     }),
   ],
+  // Use JWT so the middleware can verify sessions without hitting the DB
+  session: { strategy: "jwt" },
   callbacks: {
-    session({ session, user }) {
-      session.user.id = user.id;
+    jwt({ token, user }) {
+      // On first sign-in, persist the user id into the token
+      if (user) token.id = user.id;
+      return token;
+    },
+    session({ session, token }) {
+      // Make the user id available on the session object
+      if (token?.id) session.user.id = token.id as string;
       return session;
     },
   },

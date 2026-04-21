@@ -101,9 +101,9 @@ export default function GroceryPage() {
   const checkedItems = categories.reduce((sum, c) => sum + c.items.filter((i) => i.checked).length, 0);
 
   return (
-    <div style={{ maxWidth: 780, margin: "0 auto", padding: "2.5rem 2rem" }}>
+    <div className="page-wrap" style={{ maxWidth: 780 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "2rem" }}>
-        <h1 style={{ fontSize: "2.5rem" }}>Grocery List</h1>
+        <h1 className="page-heading" style={{ fontSize: "2.25rem" }}>Grocery List</h1>
         {generated && checkedItems > 0 && (
           <button className="btn-outline" onClick={clearChecked} style={{ fontSize: "0.8125rem" }}>
             Clear checked ({checkedItems})
@@ -112,7 +112,7 @@ export default function GroceryPage() {
       </div>
 
       {/* Week selector */}
-      <div className="card" style={{ marginBottom: "1.5rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem" }}>
+      <div className="card week-selector" style={{ marginBottom: "1.5rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
           <button className="btn-outline" onClick={() => { setWeekOffset((w) => w - 1); setGenerated(false); }} style={{ padding: "0.4rem 0.875rem" }}>←</button>
           <span style={{ fontFamily: "var(--font-display)", fontSize: "1rem", minWidth: 170, textAlign: "center" }}>

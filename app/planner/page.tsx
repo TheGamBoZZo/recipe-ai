@@ -99,10 +99,10 @@ export default function PlannerPage() {
   };
 
   return (
-    <div style={{ maxWidth: 1200, margin: "0 auto", padding: "2.5rem 2rem" }}>
+    <div className="page-wrap" style={{ maxWidth: 1200 }}>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "2rem" }}>
-        <h1 style={{ fontSize: "2.5rem" }}>Meal Planner</h1>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem", flexWrap: "wrap", gap: "0.75rem" }}>
+        <h1 className="page-heading" style={{ fontSize: "2.25rem" }}>Meal Planner</h1>
         <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
           <button className="btn-outline" onClick={() => setWeekOffset((w) => w - 1)} style={{ padding: "0.5rem 1rem" }}>
             ←
@@ -122,7 +122,7 @@ export default function PlannerPage() {
       </div>
 
       {/* Grid */}
-      <div style={{ overflowX: "auto" }}>
+      <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", marginLeft: "-1rem", marginRight: "-1rem", paddingLeft: "1rem", paddingRight: "1rem" }}>
         <div style={{ display: "grid", gridTemplateColumns: "80px repeat(7, 1fr)", gap: "0.5rem", minWidth: 720 }}>
           {/* Header row */}
           <div />
