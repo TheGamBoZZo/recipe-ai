@@ -3,50 +3,49 @@ import { callAI } from "@/lib/ai";
 
 export async function POST(req: Request) {
   const session = await auth();
-  if (!session?.user) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+  if (!session?.user) return new Response("Unauthorized", { status: 401 });
 
-  const { ingredients, cuisine, dietary, servings } = await req.json();
+  const { selectedIngredients, cuisine, servings, halal, cookTime } = await req.json();
+  const userHas = selectedIngredients as string[];
 
-  const prompt = `You are an expert chef and culinary writer. Generate a complete, delicious recipe using the provided ingredients.
+  const prompt = `You are an expert chef. Generate a delicious recipe using primarily these ingredients the user already has.
 
-Ingredients available: ${ingredients}
+User's ingredients: ${userHas.join(", ")}
 ${cuisine ? `Cuisine style: ${cuisine}` : ""}
-${dietary ? `Dietary requirements: ${dietary}` : ""}
-${servings ? `Servings: ${servings}` : "Servings: 4"}
+Servings: ${servings || 4}
+${cookTime ? `IMPORTANT: Total cook + prep time must be ${cookTime} or less. Keep it achievable in that time.` : ""}
+${halal ? "HALAL ONLY: Absolutely NO pork, bacon, ham, lard, gelatin, alcohol, wine, beer, or any pork-derived products. Use halal-certified alternatives only." : ""}
 
-Respond ONLY with valid JSON in this exact structure (no markdown, no explanation):
+In the ingredients list, mark each with HAS: or NEED: prefix:
+- HAS: = ingredient the user already has
+- NEED: = additional essential ingredient they must buy (keep these minimal)
+
+Respond ONLY with valid JSON (no markdown, no explanation):
 {
   "title": "Recipe Name",
-  "description": "A mouth-watering 2-sentence description of the dish",
-  "prepTime": "15 mins",
-  "cookTime": "30 mins",
+  "description": "A mouth-watering 2-sentence description",
+  "prepTime": "10 mins",
+  "cookTime": "20 mins",
   "servings": 4,
-  "difficulty": "Easy|Medium|Hard",
+  "difficulty": "Easy",
   "cuisine": "Italian",
-  "tags": ["vegetarian", "quick"],
+  "tags": ["quick"],
   "ingredients": [
-    "200g pasta",
-    "2 cloves garlic, minced"
+    "HAS:200g chicken breast",
+    "HAS:3 cloves garlic",
+    "NEED:1 lemon"
   ],
   "steps": [
-    "Bring a large pot of salted water to a boil.",
-    "While water heats, mince the garlic and slice the vegetables."
+    "Season the chicken with salt and pepper.",
+    "Heat oil in a pan over medium-high heat."
   ]
-}
-
-Be creative, specific with quantities and techniques. Make it genuinely delicious.`;
+}`;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        await callAI({
-          prompt,
-          maxTokens: 1500,
-          onChunk: (text) => controller.enqueue(encoder.encode(text)),
-        });
+        await callAI({ prompt, maxTokens: 1500, onChunk: (text) => controller.enqueue(encoder.encode(text)) });
         controller.close();
       } catch (err) {
         console.error("[generate-recipe] All providers failed:", err);
@@ -56,9 +55,6 @@ Be creative, specific with quantities and techniques. Make it genuinely deliciou
   });
 
   return new Response(stream, {
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Transfer-Encoding": "chunked",
-    },
+    headers: { "Content-Type": "text/plain; charset=utf-8", "Transfer-Encoding": "chunked" },
   });
 }
