@@ -1,14 +1,9 @@
 "use client";
 import { useState, useEffect } from "react";
 
-interface GroceryItem { text: string; checked: boolean; }
-interface Category { name: string; items: string[]; }
-interface SavedList {
-  weekLabel: string;
-  weekKey: string;
-  savedAt: string;
-  categories: { name: string; items: GroceryItem[] }[];
-}
+interface GroceryItem   { id: string; text: string; checked: boolean; categoryId: string; }
+interface GroceryCategory { id: string; name: string; items: GroceryItem[]; groceryListId: string; }
+interface GroceryList   { id: string; weekStart: string; categories: GroceryCategory[]; createdAt: string; }
 
 function getWeekStart(offset = 0) {
   const d = new Date();
@@ -21,9 +16,6 @@ function getWeekStart(offset = 0) {
 function formatWeek(date: Date) {
   return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
-function weekKey(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
 
 const categoryEmoji: Record<string, string> = {
   Produce: "🥦", Meat: "🥩", Seafood: "🐟", Dairy: "🧀",
@@ -31,76 +23,47 @@ const categoryEmoji: Record<string, string> = {
   Spices: "🌿", Frozen: "❄️", Beverages: "🧃", Other: "🛒",
 };
 
-const STORAGE_PREFIX = "grocery:";
-
 export default function GroceryPage() {
-  const [weekOffset, setWeekOffset] = useState(0);
-  const [categories, setCategories] = useState<{ name: string; items: GroceryItem[] }[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [generated, setGenerated] = useState(false);
-  const [error, setError] = useState("");
-  const [savedLists, setSavedLists] = useState<SavedList[]>([]);
-  const [activeTab, setActiveTab] = useState<"current" | "saved">("current");
-  const [viewingList, setViewingList] = useState<SavedList | null>(null);
+  const [weekOffset, setWeekOffset]     = useState(0);
+  const [currentList, setCurrentList]   = useState<GroceryList | null>(null);
+  const [allLists, setAllLists]         = useState<GroceryList[]>([]);
+  const [loading, setLoading]           = useState(false);
+  const [loadingLists, setLoadingLists] = useState(true);
+  const [error, setError]               = useState("");
+  const [activeTab, setActiveTab]       = useState<"current" | "saved">("current");
+  const [viewingList, setViewingList]   = useState<GroceryList | null>(null);
 
   const weekStart = getWeekStart(weekOffset);
-  const currentKey = weekKey(weekStart);
 
-  // Load saved lists and check if current week is already saved
+  // Load all saved lists on mount
   useEffect(() => {
-    loadSavedLists();
+    fetchAllLists();
   }, []);
 
+  // Load current week's list whenever week changes
   useEffect(() => {
-    const existing = savedLists.find((l) => l.weekKey === currentKey);
-    if (existing) {
-      setCategories(existing.categories);
-      setGenerated(true);
-    } else {
-      setCategories([]);
-      setGenerated(false);
-    }
-  }, [currentKey, savedLists]);
+    fetchCurrentWeek();
+  }, [weekOffset]);
 
-  async function loadSavedLists() {
+  async function fetchAllLists() {
+    setLoadingLists(true);
     try {
-      const keys = await (window as any).storage.list(STORAGE_PREFIX);
-      const lists: SavedList[] = [];
-      for (const key of (keys?.keys ?? [])) {
-        const result = await (window as any).storage.get(key);
-        if (result?.value) lists.push(JSON.parse(result.value));
+      const res = await fetch("/api/grocery-list", { method: "PUT" });
+      if (res.ok) setAllLists(await res.json());
+    } catch { /* ignore */ } finally {
+      setLoadingLists(false);
+    }
+  }
+
+  async function fetchCurrentWeek() {
+    setCurrentList(null);
+    try {
+      const res = await fetch(`/api/grocery-list?week=${weekStart.toISOString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCurrentList(data);
       }
-      lists.sort((a, b) => b.weekKey.localeCompare(a.weekKey));
-      setSavedLists(lists);
-    } catch {
-      // storage not available — no-op, app still works without persistence
-    }
-  }
-
-  async function saveList(cats: { name: string; items: GroceryItem[] }[]) {
-    const list: SavedList = {
-      weekKey: currentKey,
-      weekLabel: `Week of ${formatWeek(weekStart)}`,
-      savedAt: new Date().toISOString(),
-      categories: cats,
-    };
-    try {
-      await (window as any).storage.set(`${STORAGE_PREFIX}${currentKey}`, JSON.stringify(list));
-      setSavedLists((prev) => {
-        const filtered = prev.filter((l) => l.weekKey !== currentKey);
-        return [list, ...filtered].sort((a, b) => b.weekKey.localeCompare(a.weekKey));
-      });
-    } catch {
-      // storage unavailable — list still shown in UI, just not persisted
-    }
-  }
-
-  async function deleteSavedList(key: string) {
-    try {
-      await (window as any).storage.delete(`${STORAGE_PREFIX}${key}`);
-      setSavedLists((prev) => prev.filter((l) => l.weekKey !== key));
-      if (viewingList?.weekKey === key) setViewingList(null);
-    } catch { /* no-op */ }
+    } catch { /* ignore */ }
   }
 
   async function generate() {
@@ -113,19 +76,15 @@ export default function GroceryPage() {
         body: JSON.stringify({ week: weekStart.toISOString() }),
       });
       const data = await res.json();
+
       if (!data.categories || data.categories.length === 0) {
         setError("No meals found for this week. Add recipes to your meal planner first.");
-        setGenerated(false);
-      } else {
-        const cats = (data.categories as Category[]).map((c) => ({
-          name: c.name,
-          items: c.items.map((item) => ({ text: item, checked: false })),
-        }));
-        setCategories(cats);
-        setGenerated(true);
-        // Auto-save immediately
-        await saveList(cats);
+        return;
       }
+
+      setCurrentList(data);
+      // Refresh the all-lists tab too
+      fetchAllLists();
     } catch {
       setError("Something went wrong. Please try again.");
     } finally {
@@ -133,116 +92,124 @@ export default function GroceryPage() {
     }
   }
 
-  function toggleItem(catIdx: number, itemIdx: number, listOverride?: SavedList) {
-    if (listOverride) {
-      const updated = {
-        ...listOverride,
-        categories: listOverride.categories.map((c, ci) =>
-          ci !== catIdx ? c : {
-            ...c, items: c.items.map((item, ii) =>
-              ii !== itemIdx ? item : { ...item, checked: !item.checked }
-            ),
-          }
-        ),
-      };
-      setViewingList(updated);
-      // persist updated checked state
-      (window as any).storage?.set(`${STORAGE_PREFIX}${listOverride.weekKey}`, JSON.stringify(updated)).catch(() => {});
-      setSavedLists((prev) => prev.map((l) => l.weekKey === listOverride.weekKey ? updated : l));
-      return;
-    }
-    setCategories((prev) => {
-      const next = [...prev];
-      next[catIdx] = {
-        ...next[catIdx],
-        items: next[catIdx].items.map((item, i) => i === itemIdx ? { ...item, checked: !item.checked } : item),
-      };
-      // persist
-      const updated = next;
-      saveList(updated).catch(() => {});
-      return updated;
-    });
+  async function toggleItem(itemId: string, currentChecked: boolean, listSetter: (fn: (l: GroceryList) => GroceryList) => void) {
+    // Optimistic update
+    listSetter((prev) => ({
+      ...prev,
+      categories: prev.categories.map((c) => ({
+        ...c,
+        items: c.items.map((i) => i.id === itemId ? { ...i, checked: !currentChecked } : i),
+      })),
+    }));
+
+    // Persist to DB
+    try {
+      await fetch("/api/grocery-list/item", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId, checked: !currentChecked }),
+      });
+    } catch { /* revert isn't critical — will sync on next load */ }
   }
 
-  function clearChecked() {
-    setCategories((prev) => {
-      const updated = prev
-        .map((c) => ({ ...c, items: c.items.filter((i) => !i.checked) }))
-        .filter((c) => c.items.length > 0);
-      saveList(updated).catch(() => {});
-      return updated;
+  async function deleteList(weekIso: string) {
+    await fetch("/api/grocery-list", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ week: weekIso }),
     });
+    setAllLists((prev) => prev.filter((l) => l.weekStart !== weekIso));
+    if (viewingList?.weekStart === weekIso) setViewingList(null);
+    // If it was current week, clear
+    const listWeek = new Date(weekIso).toDateString();
+    if (listWeek === weekStart.toDateString()) setCurrentList(null);
   }
 
-  const totalItems = categories.reduce((sum, c) => sum + c.items.length, 0);
-  const checkedItems = categories.reduce((sum, c) => sum + c.items.filter((i) => i.checked).length, 0);
+  function ListProgress({ list }: { list: GroceryList }) {
+    const total = list.categories.reduce((s, c) => s + c.items.length, 0);
+    const done  = list.categories.reduce((s, c) => s + c.items.filter((i) => i.checked).length, 0);
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}>
+        <div style={{ flex: 1, height: 4, background: "var(--border)", borderRadius: 2, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${total > 0 ? (done / total) * 100 : 0}%`, background: "var(--sage)", borderRadius: 2, transition: "width 0.3s" }} />
+        </div>
+        <span style={{ fontSize: "0.75rem", color: "var(--ink-soft)", whiteSpace: "nowrap" }}>{done}/{total}</span>
+      </div>
+    );
+  }
 
   return (
     <div className="page-wrap" style={{ maxWidth: 780 }}>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
+      {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem", flexWrap: "wrap", gap: "0.75rem" }}>
         <h1 className="page-heading" style={{ fontSize: "2.25rem" }}>Grocery List</h1>
         <div style={{ display: "flex", gap: "0.5rem" }}>
           {(["current", "saved"] as const).map((tab) => (
             <button key={tab} onClick={() => setActiveTab(tab)}
               className={activeTab === tab ? "btn-primary" : "btn-outline"}
-              style={{ padding: "0.5rem 1.25rem", textTransform: "capitalize", fontSize: "0.875rem" }}>
-              {tab === "saved" ? `Saved (${savedLists.length})` : "This week"}
+              style={{ padding: "0.5rem 1.25rem", fontSize: "0.875rem" }}>
+              {tab === "saved" ? `Saved (${allLists.length})` : "This week"}
             </button>
           ))}
         </div>
       </div>
 
-      {/* ── Saved lists tab ── */}
+      {/* ── Saved tab ── */}
       {activeTab === "saved" && (
         <div>
           {viewingList ? (
             <div className="fade-in">
               <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.25rem" }}>
                 <button onClick={() => setViewingList(null)} className="btn-outline" style={{ padding: "0.4rem 0.875rem", fontSize: "0.8125rem" }}>← Back</button>
-                <h2 style={{ fontSize: "1.125rem" }}>{viewingList.weekLabel}</h2>
+                <h2 style={{ fontSize: "1.125rem" }}>Week of {formatWeek(new Date(viewingList.weekStart))}</h2>
                 <span style={{ fontSize: "0.75rem", color: "var(--ink-soft)", marginLeft: "auto" }}>
-                  Saved {new Date(viewingList.savedAt).toLocaleDateString("en-GB")}
+                  {new Date(viewingList.createdAt).toLocaleDateString("en-GB")}
                 </span>
               </div>
-              <GroceryListView
-                categories={viewingList.categories}
-                onToggle={(ci, ii) => toggleItem(ci, ii, viewingList)}
-              />
+              <ListProgress list={viewingList} />
+              <div style={{ marginTop: "1rem" }}>
+                <GroceryListView
+                  list={viewingList}
+                  onToggle={(itemId, checked) => toggleItem(itemId, checked, (fn) => setViewingList((prev) => prev ? fn(prev) : prev!))}
+                />
+              </div>
             </div>
-          ) : savedLists.length === 0 ? (
+          ) : loadingLists ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              {[1,2,3].map((i) => <div key={i} className="card shimmer" style={{ height: 68 }} />)}
+            </div>
+          ) : allLists.length === 0 ? (
             <div style={{ textAlign: "center", padding: "4rem 1rem", color: "var(--ink-soft)" }}>
               <div style={{ fontSize: "2.5rem", marginBottom: "1rem", opacity: 0.2 }}>◉</div>
               <p style={{ fontFamily: "var(--font-display)", fontStyle: "italic", fontSize: "1.125rem" }}>No saved lists yet</p>
-              <p style={{ fontSize: "0.875rem", marginTop: "0.5rem" }}>Generate a grocery list and it will auto-save here</p>
+              <p style={{ fontSize: "0.875rem", marginTop: "0.5rem" }}>Generate a grocery list and it will be saved here automatically</p>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              {savedLists.map((list) => {
-                const total = list.categories.reduce((s, c) => s + c.items.length, 0);
-                const checked = list.categories.reduce((s, c) => s + c.items.filter((i) => i.checked).length, 0);
-                return (
-                  <div key={list.weekKey} className="card"
-                    style={{ display: "flex", alignItems: "center", gap: "1rem", cursor: "pointer", transition: "box-shadow 0.15s" }}
-                    onClick={() => setViewingList(list)}
-                    onMouseEnter={(e) => (e.currentTarget as HTMLDivElement).style.boxShadow = "0 4px 16px rgba(0,0,0,0.06)"}
-                    onMouseLeave={(e) => (e.currentTarget as HTMLDivElement).style.boxShadow = ""}
-                  >
-                    <div style={{ flex: 1 }}>
-                      <p style={{ fontWeight: 500, fontSize: "0.9375rem", marginBottom: "0.25rem" }}>{list.weekLabel}</p>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                        <div style={{ flex: 1, height: 4, background: "var(--border)", borderRadius: 2, overflow: "hidden", maxWidth: 120 }}>
-                          <div style={{ height: "100%", width: `${total > 0 ? (checked / total) * 100 : 0}%`, background: "var(--sage)", borderRadius: 2 }} />
-                        </div>
-                        <span style={{ fontSize: "0.75rem", color: "var(--ink-soft)" }}>{checked}/{total} items</span>
-                      </div>
-                    </div>
-                    <button onClick={(e) => { e.stopPropagation(); deleteSavedList(list.weekKey); }}
-                      style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-soft)", opacity: 0.4, fontSize: "1.125rem", padding: "4px" }}>×</button>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem" }}>
+              {allLists.map((list) => (
+                <div key={list.id} className="card"
+                  style={{ display: "flex", alignItems: "center", gap: "1rem", cursor: "pointer", transition: "box-shadow 0.15s", padding: "1rem 1.25rem" }}
+                  onClick={() => setViewingList(list)}
+                  onMouseEnter={(e) => (e.currentTarget as HTMLDivElement).style.boxShadow = "0 4px 16px rgba(0,0,0,0.06)"}
+                  onMouseLeave={(e) => (e.currentTarget as HTMLDivElement).style.boxShadow = ""}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontWeight: 500, fontSize: "0.9375rem", marginBottom: "0.375rem" }}>
+                      Week of {formatWeek(new Date(list.weekStart))}
+                    </p>
+                    <ListProgress list={list} />
                   </div>
-                );
-              })}
+                  <span style={{ fontSize: "0.75rem", color: "var(--ink-soft)", whiteSpace: "nowrap", flexShrink: 0 }}>
+                    {new Date(list.createdAt).toLocaleDateString("en-GB")}
+                  </span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); deleteList(list.weekStart); }}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-soft)", opacity: 0.35, fontSize: "1.125rem", padding: "4px", flexShrink: 0 }}
+                  >×</button>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -251,61 +218,58 @@ export default function GroceryPage() {
       {/* ── Current week tab ── */}
       {activeTab === "current" && (
         <div>
-          <div className="card week-selector" style={{ marginBottom: "1.5rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          {/* Week navigator + generate button */}
+          <div className="card week-selector" style={{ marginBottom: "1.25rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}>
               <button className="btn-outline" onClick={() => setWeekOffset((w) => w - 1)} style={{ padding: "0.4rem 0.875rem" }}>←</button>
-              <span style={{ fontFamily: "var(--font-display)", fontSize: "0.9375rem", minWidth: 160, textAlign: "center" }}>
+              <span style={{ fontFamily: "var(--font-display)", fontSize: "0.9375rem", minWidth: 150, textAlign: "center" }}>
                 {formatWeek(weekStart)}
               </span>
               <button className="btn-outline" onClick={() => setWeekOffset((w) => w + 1)} style={{ padding: "0.4rem 0.875rem" }}>→</button>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-              {generated && checkedItems > 0 && (
-                <button className="btn-outline" onClick={clearChecked} style={{ fontSize: "0.8125rem" }}>
-                  Clear checked ({checkedItems})
-                </button>
-              )}
-              <button className="btn-primary" onClick={generate} disabled={loading}
-                style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                {loading ? (
-                  <><span style={{ display: "inline-block", width: 14, height: 14, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "white", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />Generating...</>
-                ) : generated ? "↻ Regenerate" : "✦ Generate list"}
-              </button>
-            </div>
+            <button className="btn-primary" onClick={generate} disabled={loading}
+              style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              {loading
+                ? <><span style={{ display: "inline-block", width: 14, height: 14, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "white", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />Generating...</>
+                : currentList ? "↻ Regenerate" : "✦ Generate list"}
+            </button>
           </div>
 
-          {generated && (
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1.25rem", padding: "0.5rem 0.75rem", background: "var(--sage-light)", borderRadius: "0.5rem" }}>
-              <span style={{ fontSize: "0.875rem" }}>✓</span>
+          {/* Auto-saved badge */}
+          {currentList && (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1.125rem", padding: "0.5rem 0.75rem", background: "var(--sage-light)", borderRadius: "0.5rem" }}>
+              <span style={{ color: "var(--sage)", fontSize: "0.875rem" }}>✓</span>
               <p style={{ fontSize: "0.8125rem", color: "var(--sage)" }}>
-                <strong>Auto-saved</strong> — find this list in the Saved tab anytime
+                <strong>Saved to your account</strong> — view any time in the Saved tab
               </p>
             </div>
           )}
 
           {error && (
-            <div style={{ background: "var(--terra-light)", border: "1px solid var(--terra)", borderRadius: "0.75rem", padding: "1rem 1.25rem", marginBottom: "1.5rem", color: "var(--terra)", fontSize: "0.9375rem" }}>
+            <div style={{ background: "var(--terra-light)", border: "1px solid var(--terra)", borderRadius: "0.75rem", padding: "1rem 1.25rem", marginBottom: "1.25rem", color: "var(--terra)", fontSize: "0.9375rem" }}>
               {error}
             </div>
           )}
 
-          {!generated && !loading && !error && (
+          {!currentList && !loading && !error && (
             <div style={{ textAlign: "center", padding: "4rem 2rem", color: "var(--ink-soft)" }}>
               <div style={{ fontSize: "2.5rem", marginBottom: "1rem", opacity: 0.25 }}>◉</div>
-              <p style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontStyle: "italic", marginBottom: "0.5rem" }}>Your grocery list will appear here</p>
+              <p style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontStyle: "italic", marginBottom: "0.5rem" }}>
+                Your grocery list will appear here
+              </p>
               <p style={{ fontSize: "0.875rem" }}>Add recipes to your meal planner, then generate a list</p>
             </div>
           )}
 
-          {generated && categories.length > 0 && (
+          {currentList && (
             <div className="fade-in">
-              <div style={{ marginBottom: "1.25rem", display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                <div style={{ flex: 1, height: 6, background: "var(--border)", borderRadius: 4, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${totalItems > 0 ? (checkedItems / totalItems) * 100 : 0}%`, background: "var(--sage)", borderRadius: 4, transition: "width 0.3s" }} />
-                </div>
-                <span style={{ fontSize: "0.875rem", color: "var(--ink-soft)", whiteSpace: "nowrap" }}>{checkedItems} / {totalItems}</span>
+              <div style={{ marginBottom: "1.125rem" }}>
+                <ListProgress list={currentList} />
               </div>
-              <GroceryListView categories={categories} onToggle={(ci, ii) => toggleItem(ci, ii)} />
+              <GroceryListView
+                list={currentList}
+                onToggle={(itemId, checked) => toggleItem(itemId, checked, (fn) => setCurrentList((prev) => prev ? fn(prev) : prev))}
+              />
             </div>
           )}
         </div>
@@ -314,21 +278,23 @@ export default function GroceryPage() {
   );
 }
 
+// ── Shared list renderer ──────────────────────────────────────────────────────
 function GroceryListView({
-  categories, onToggle,
+  list, onToggle,
 }: {
-  categories: { name: string; items: GroceryItem[] }[];
-  onToggle: (catIdx: number, itemIdx: number) => void;
+  list: GroceryList;
+  onToggle: (itemId: string, currentChecked: boolean) => void;
 }) {
   const categoryEmoji: Record<string, string> = {
     Produce: "🥦", Meat: "🥩", Seafood: "🐟", Dairy: "🧀",
     "Bakery & Bread": "🍞", Pantry: "🫙", "Canned Goods": "🥫",
     Spices: "🌿", Frozen: "❄️", Beverages: "🧃", Other: "🛒",
   };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-      {categories.map((cat, catIdx) => (
-        <div key={cat.name} className="card" style={{ padding: "1.125rem 1.375rem" }}>
+      {list.categories.map((cat) => (
+        <div key={cat.id} className="card" style={{ padding: "1.125rem 1.375rem" }}>
           <h3 style={{ fontSize: "0.9375rem", marginBottom: "0.75rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <span>{categoryEmoji[cat.name] || "🛒"}</span>
             {cat.name}
@@ -336,9 +302,9 @@ function GroceryListView({
               {cat.items.filter((i) => !i.checked).length} remaining
             </span>
           </h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
-            {cat.items.map((item, itemIdx) => (
-              <label key={itemIdx} onClick={() => onToggle(catIdx, itemIdx)}
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+            {cat.items.map((item) => (
+              <div key={item.id} onClick={() => onToggle(item.id, item.checked)}
                 style={{ display: "flex", alignItems: "center", gap: "0.75rem", cursor: "pointer", padding: "0.3rem 0" }}>
                 <div style={{
                   width: 20, height: 20, borderRadius: "50%", flexShrink: 0,
@@ -352,10 +318,15 @@ function GroceryListView({
                     </svg>
                   )}
                 </div>
-                <span style={{ fontSize: "0.9375rem", color: item.checked ? "var(--ink-soft)" : "var(--ink)", textDecoration: item.checked ? "line-through" : "none", transition: "all 0.15s", flex: 1 }}>
+                <span style={{
+                  fontSize: "0.9375rem", flex: 1,
+                  color: item.checked ? "var(--ink-soft)" : "var(--ink)",
+                  textDecoration: item.checked ? "line-through" : "none",
+                  transition: "all 0.15s",
+                }}>
                   {item.text}
                 </span>
-              </label>
+              </div>
             ))}
           </div>
         </div>

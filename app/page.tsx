@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { auth, signIn } from "@/lib/auth";
 import { redirect } from "next/navigation";
 
@@ -10,14 +9,16 @@ export default async function HomePage({
   const session = await auth();
   const { callbackUrl } = await searchParams;
 
-  // If already logged in, send them where they were going (or /recipes)
-  if (session) {
-    redirect(callbackUrl || "/recipes");
-  }
+  // Validate callbackUrl — only allow relative paths on this origin (no open redirect)
+  const safeCallback =
+    callbackUrl && callbackUrl.startsWith("/") && !callbackUrl.startsWith("//")
+      ? callbackUrl
+      : "/recipes";
+
+  if (session) redirect(safeCallback);
 
   return (
     <div className="page-wrap" style={{ maxWidth: 1100, paddingTop: "3rem", paddingBottom: "3rem" }}>
-      {/* Hero */}
       <div style={{ textAlign: "center", marginBottom: "5rem" }}>
         <div className="tag" style={{ marginBottom: "1.5rem" }}>AI-powered kitchen companion</div>
         <h1 style={{ fontSize: "clamp(2.25rem, 8vw, 5.5rem)", marginBottom: "1.5rem", letterSpacing: "-0.03em", lineHeight: 1.05 }}>
@@ -29,10 +30,15 @@ export default async function HomePage({
           Plan your week, generate your grocery list — all in one place.
         </p>
 
+        {/*
+          Next.js Server Actions automatically include a hidden CSRF token in
+          every <form> that uses an `action` async server function.
+          This resolves the "POST form missing CSRF token" warning.
+        */}
         <form
           action={async () => {
             "use server";
-            await signIn("google", { redirectTo: callbackUrl || "/recipes" });
+            await signIn("google", { redirectTo: safeCallback });
           }}
           style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: "0.75rem" }}
         >
@@ -45,30 +51,14 @@ export default async function HomePage({
         </form>
       </div>
 
-      {/* Feature cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1.5rem" }}>
         {[
-          {
-            emoji: "✦",
-            color: "var(--terra-light)",
-            title: "Generate recipes",
-            body: "Enter any ingredients you have. Claude crafts a full recipe tailored to your taste, dietary needs, and cooking time.",
-          },
-          {
-            emoji: "◈",
-            color: "var(--sage-light)",
-            title: "Plan your week",
-            body: "Drag saved recipes onto a weekly meal planner. Breakfast, lunch, dinner — your whole week at a glance.",
-          },
-          {
-            emoji: "◉",
-            color: "var(--gold-light)",
-            title: "Smart grocery list",
-            body: "AI consolidates all ingredients from your meal plan into a clean, categorised shopping list. No duplicates.",
-          },
+          { emoji: "✦", color: "var(--terra-light)", title: "Generate recipes",  body: "Enter any ingredients you have. Claude crafts a full recipe tailored to your taste, dietary needs, and cooking time." },
+          { emoji: "◈", color: "var(--sage-light)",  title: "Plan your week",    body: "Assign saved recipes to a weekly meal planner. Breakfast, lunch, dinner — your whole week at a glance." },
+          { emoji: "◉", color: "var(--gold-light)",  title: "Smart grocery list", body: "AI consolidates all ingredients from your meal plan into a clean, categorised shopping list. No duplicates." },
         ].map((f) => (
           <div key={f.title} className="card" style={{ background: f.color, border: "none" }}>
-            <div style={{ fontSize: "1.5rem", marginBottom: "0.75rem", color: "var(--ink)" }}>{f.emoji}</div>
+            <div style={{ fontSize: "1.5rem", marginBottom: "0.75rem" }}>{f.emoji}</div>
             <h3 style={{ fontSize: "1.125rem", marginBottom: "0.5rem" }}>{f.title}</h3>
             <p style={{ fontSize: "0.9375rem", color: "var(--ink-soft)", lineHeight: 1.65 }}>{f.body}</p>
           </div>

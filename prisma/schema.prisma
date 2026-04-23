@@ -8,16 +8,17 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
+  id            String         @id @default(cuid())
   name          String?
-  email         String    @unique
+  email         String         @unique
   emailVerified DateTime?
   image         String?
   accounts      Account[]
   sessions      Session[]
   recipes       Recipe[]
   mealPlans     MealPlan[]
-  createdAt     DateTime  @default(now())
+  groceryLists  GroceryList[]
+  createdAt     DateTime       @default(now())
 }
 
 model Account {
@@ -32,8 +33,7 @@ model Account {
   scope             String?
   id_token          String?
   session_state     String?
-  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  user              User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@id([provider, providerAccountId])
 }
 
@@ -48,7 +48,6 @@ model VerificationToken {
   identifier String
   token      String
   expires    DateTime
-
   @@id([identifier, token])
 }
 
@@ -77,7 +76,6 @@ model MealPlan {
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   slots     MealSlot[]
   createdAt DateTime   @default(now())
-
   @@unique([userId, weekStart])
 }
 
@@ -89,4 +87,32 @@ model MealSlot {
   recipeId   String
   mealPlan   MealPlan @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
   recipe     Recipe   @relation(fields: [recipeId], references: [id])
+}
+
+// Stores generated grocery lists, one per user per week
+model GroceryList {
+  id         String              @id @default(cuid())
+  weekStart  DateTime
+  userId     String
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categories GroceryCategory[]
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  @@unique([userId, weekStart])
+}
+
+model GroceryCategory {
+  id            String        @id @default(cuid())
+  name          String
+  groceryListId String
+  groceryList   GroceryList   @relation(fields: [groceryListId], references: [id], onDelete: Cascade)
+  items         GroceryItem[]
+}
+
+model GroceryItem {
+  id         String          @id @default(cuid())
+  text       String
+  checked    Boolean         @default(false)
+  categoryId String
+  category   GroceryCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 }
