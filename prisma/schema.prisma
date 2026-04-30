@@ -1,0 +1,118 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(cuid())
+  name          String?
+  email         String         @unique
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+  recipes       Recipe[]
+  mealPlans     MealPlan[]
+  groceryLists  GroceryList[]
+  createdAt     DateTime       @default(now())
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([provider, providerAccountId])
+}
+
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+  @@id([identifier, token])
+}
+
+model Recipe {
+  id          String     @id @default(cuid())
+  title       String
+  description String
+  ingredients String[]
+  steps       String[]
+  cuisine     String?
+  prepTime    String?
+  cookTime    String?
+  servings    Int?
+  difficulty  String?
+  tags        String[]
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mealSlots   MealSlot[]
+  createdAt   DateTime   @default(now())
+}
+
+model MealPlan {
+  id        String     @id @default(cuid())
+  weekStart DateTime
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slots     MealSlot[]
+  createdAt DateTime   @default(now())
+  @@unique([userId, weekStart])
+}
+
+model MealSlot {
+  id         String   @id @default(cuid())
+  dayOfWeek  Int
+  mealType   String
+  mealPlanId String
+  recipeId   String
+  mealPlan   MealPlan @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
+  recipe     Recipe   @relation(fields: [recipeId], references: [id])
+}
+
+// Stores generated grocery lists, one per user per week
+model GroceryList {
+  id         String              @id @default(cuid())
+  weekStart  DateTime
+  userId     String
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categories GroceryCategory[]
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  @@unique([userId, weekStart])
+}
+
+model GroceryCategory {
+  id            String        @id @default(cuid())
+  name          String
+  groceryListId String
+  groceryList   GroceryList   @relation(fields: [groceryListId], references: [id], onDelete: Cascade)
+  items         GroceryItem[]
+}
+
+model GroceryItem {
+  id         String          @id @default(cuid())
+  text       String
+  checked    Boolean         @default(false)
+  categoryId String
+  category   GroceryCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+}
