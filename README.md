@@ -88,12 +88,3 @@ prisma/
 5. Update OAuth redirect URIs to your production URL
 6. Deploy — Vercel auto-detects Next.js
 
----
-
-## What makes this portfolio-worthy
-
-- **Streaming AI responses** using the Anthropic SDK — shows async/SSE handling
-- **Real database** with relational schema (not localStorage)
-- **OAuth authentication** with session management
-- **Clean, distinctive UI** with a custom design system — not a component library
-- **Live demo-able** — generate a recipe on the spot in interviews
