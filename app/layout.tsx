@@ -8,6 +8,10 @@ import { Analytics } from '@vercel/analytics/next';
 export const metadata: Metadata = {
   title: "Mise — AI Recipe Planner",
   description: "Generate recipes, plan your week, shop smarter.",
+  icons: {
+    icon: "/favicon.svg",
+    apple: "/apple-touch-icon.svg",
+  },
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
